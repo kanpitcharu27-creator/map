@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Eatable Map - แผนที่แหล่งอาหารกินได้ในชุมชน</title>
+
+    <!-- Google Fonts: Kanit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Kanit', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Leaflet CSS & JS (OpenStreetMap) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body { font-family: 'Kanit', sans-serif; }
+        #map { height: 100%; width: 100%; z-index: 1; }
+        .leaflet-popup-content-wrapper {
+            padding: 0;
+            overflow: hidden;
+            border-radius: 1.15rem;
+            box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.18);
+        }
+        .leaflet-popup-content {
+            margin: 0 !important;
+            width: 295px !important;
+        }
+        @media (min-width: 640px) {
+            .leaflet-popup-content { width: 330px !important; }
+        }
+        .leaflet-container a.leaflet-popup-close-button {
+            padding: 8px 10px 0 0;
+            color: #ffffff;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.85);
+            font-size: 20px;
+            z-index: 10;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f8fafc; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        @keyframes pulseRing {
+            0% { transform: scale(0.8); opacity: 0.85; }
+            100% { transform: scale(2.3); opacity: 0; }
+        }
+        .gps-pulse {
+            animation: pulseRing 1.8s infinite ease-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Toast Notification Banner -->
+    <div id="toastContainer" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[120] flex flex-col gap-2 pointer-events-none w-max max-w-[92vw]"></div>
+
+    <!-- Custom Confirm Modal (No native confirm) -->
+    <div id="confirmModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5 space-y-4">
+            <div class="flex items-center space-x-3 text-rose-600">
+                <div class="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                    <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+                </div>
+                <h3 class="font-bold text-slate-800 text-base" id="confirmTitle">ยืนยันการทำรายการ</h3>
+            </div>
+            <p class="text-xs text-slate-600 leading-relaxed" id="confirmMessage">คุณต้องการดำเนินการนี้ใช่หรือไม่?</p>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button id="confirmCancelBtn" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition">ยกเลิก</button>
+                <button id="confirmOkBtn" class="px-4 py-2 rounded-xl text-xs font-medium bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition">ยืนยัน</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= AUTH GATE / LOGIN & REGISTER MODAL ================= -->
+    <div id="authModal" class="fixed inset-0 bg-slate-900/75 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-emerald-100 my-auto">
+            <!-- Top Brand Banner -->
+            <div class="bg-gradient-to-br from-emerald-700 via-emerald-600 to-green-600 p-6 text-white text-center relative">
+                <button id="closeAuthBtn" onclick="closeAuthModal()" class="hidden absolute top-4 right-4 text-white/80 hover:text-white p-1.5 rounded-lg bg-white/10">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+                <div class="w-14 h-14 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <i class="fa-solid fa-leaf text-3xl text-white"></i>
+                </div>
+                <h2 class="text-xl font-bold tracking-wide">Local Eatable Map</h2>
+                <p class="text-xs text-emerald-100 mt-1">แผนที่แหล่งอาหารกินได้ในชุมชน • มธ.รังสิต - คลองหลวง</p>
+            </div>
+
+            <!-- Auth Tabs -->
+            <div class="grid grid-cols-2 border-b border-slate-200 bg-slate-50 text-xs font-semibold">
+                <button id="tabRegister" onclick="switchAuthTab('register')" class="py-3.5 text-emerald-700 border-b-2 border-emerald-600 bg-white transition">
+                    <i class="fa-solid fa-user-plus mr-1"></i> ลงทะเบียนใหม่
+                </button>
+                <button id="tabLogin" onclick="switchAuthTab('login')" class="py-3.5 text-slate-500 hover:text-slate-800 transition">
+                    <i class="fa-solid fa-right-to-bracket mr-1"></i> เข้าสู่ระบบ
+                </button>
+            </div>
+
+            <!-- Register Form -->
+            <form id="registerUserForm" class="p-5 space-y-3 text-xs sm:text-sm max-h-[65vh] overflow-y-auto custom-scrollbar">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">เลือกบทบาทการใช้งานของคุณ <span class="text-rose-500">*</span></label>
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="authRole" value="buyer" checked class="peer hidden">
+                            <div class="p-2.5 rounded-xl border-2 border-slate-200 peer-checked:border-emerald-600 peer-checked:bg-emerald-50 text-center transition">
+                                <i class="fa-solid fa-basket-shopping text-emerald-600 text-base mb-1 block"></i>
+                                <div class="font-bold text-slate-800 text-xs">ผู้ซื้อในชุมชน</div>
+                                <div class="text-[10px] text-slate-500">ค้นหาและสั่งจองผักใกล้บ้าน</div>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="authRole" value="seller" class="peer hidden">
+                            <div class="p-2.5 rounded-xl border-2 border-slate-200 peer-checked:border-emerald-600 peer-checked:bg-emerald-50 text-center transition">
+                                <i class="fa-solid fa-store text-emerald-600 text-base mb-1 block"></i>
+                                <div class="font-bold text-slate-800 text-xs">ผู้ขาย / เจ้าของสวน</div>
+                                <div class="text-[10px] text-slate-500">ปักหมุดสวน ลงขายและรับออเดอร์</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">ชื่อ-นามสกุล หรือ ชื่อเรียก <span class="text-rose-500">*</span></label>
+                    <input type="text" id="authRegName" required placeholder="เช่น คุณกานดา / สวนผักบ้านเรา" class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">อีเมล <span class="text-rose-500">*</span></label>
+                        <input type="email" id="authRegEmail" required placeholder="name@email.com" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">รหัสผ่าน <span class="text-rose-500">*</span></label>
+                        <input type="password" id="authRegPassword" required placeholder="อย่างน้อย 4 ตัวอักษร" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">เบอร์โทรศัพท์ติดต่อ <span class="text-rose-500">*</span></label>
+                        <input type="tel" id="authRegPhone" required placeholder="08X-XXX-XXXX" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">LINE ID (สำหรับติดต่อตรง)</label>
+                        <input type="text" id="authRegLine" placeholder="เช่น my_line_id" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl shadow-md transition mt-2">
+                    ยืนยันลงทะเบียนและเข้าใช้งาน
+                </button>
+
+                <!-- Quick Demo Login Buttons -->
+                <div class="pt-3 border-t border-slate-100">
+                    <div class="text-[11px] text-slate-400 text-center mb-2">หรือเข้าสู่ระบบด่วนด้วยบัญชีทดสอบ:</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="quickDemoLogin('buyer')" class="py-2 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium flex items-center justify-center gap-1.5 transition">
+                            <i class="fa-solid fa-user text-emerald-600"></i> ทดลองเป็น "ผู้ซื้อ"
+                        </button>
+                        <button type="button" onclick="quickDemoLogin('seller')" class="py-2 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition">
+                            <i class="fa-solid fa-store text-emerald-700"></i> ทดลองเป็น "ผู้ขาย"
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Login Form -->
+            <form id="loginUserForm" class="p-5 space-y-3.5 text-xs sm:text-sm hidden">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">อีเมลที่ลงทะเบียน</label>
+                    <input type="email" id="authLoginEmail" required placeholder="name@email.com" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">รหัสผ่าน</label>
+                    <input type="password" id="authLoginPassword" required placeholder="••••••••" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl shadow-md transition">
+                    เข้าสู่ระบบ
+                </button>
+
+                <div class="pt-3 border-t border-slate-100">
+                    <div class="text-[11px] text-slate-400 text-center mb-2">เข้าสู่ระบบด่วนด้วยบัญชีทดสอบ:</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="quickDemoLogin('buyer')" class="py-2 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium flex items-center justify-center gap-1.5 transition">
+                            <i class="fa-solid fa-user text-emerald-600"></i> บัญชีผู้ซื้อ
+                        </button>
+                        <button type="button" onclick="quickDemoLogin('seller')" class="py-2 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-medium flex items-center justify-center gap-1.5 transition">
+                            <i class="fa-solid fa-store text-emerald-700"></i> บัญชีผู้ขาย (ลุงสมชาย)
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= MAIN HEADER NAVBAR ================= -->
+    <header class="bg-white border-b border-emerald-100 shadow-sm z-30 flex-shrink-0">
+        <div class="max-w-full mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2">
+            <!-- Brand -->
+            <div class="flex items-center space-x-2.5 min-w-0">
+                <div class="bg-emerald-600 text-white p-2 sm:p-2.5 rounded-2xl shadow-md shadow-emerald-200 flex-shrink-0">
+                    <i class="fa-solid fa-leaf text-lg sm:text-xl"></i>
+                </div>
+                <div class="min-w-0">
+                    <h1 class="text-base sm:text-lg font-bold bg-gradient-to-r from-emerald-700 to-green-600 bg-clip-text text-transparent truncate">
+                        Local Eatable Map
+                    </h1>
+                    <p class="text-[11px] text-slate-500 font-light hidden md:block">แผนที่แหล่งอาหารกินได้ในชุมชน • มธ.รังสิต - เชียงราก - คลองหลวง</p>
+                </div>
+            </div>
+
+            <!-- User Profile Badge & Actions -->
+            <div class="flex items-center space-x-1.5 sm:space-x-2.5 flex-shrink-0">
+                <!-- Current User Pill -->
+                <div id="userProfileBadge" onclick="openAuthModal(true)" class="cursor-pointer bg-slate-100 hover:bg-slate-200/80 border border-slate-200 px-2.5 py-1.5 rounded-xl flex items-center space-x-2 transition">
+                    <div id="userRoleIcon" class="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
+                    <div class="text-left leading-tight">
+                        <div id="userDisplayName" class="text-xs font-bold text-slate-800 max-w-[90px] sm:max-w-[130px] truncate">ผู้ใช้งาน</div>
+                        <div id="userDisplayRole" class="text-[10px] text-emerald-700 font-medium">ผู้ซื้อ</div>
+                    </div>
+                </div>
+
+                <!-- Orders / Inbox Button -->
+                <button onclick="openMyOrdersModal()" class="relative bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center space-x-1.5" title="รายการสั่งจองของฉัน">
+                    <i class="fa-solid fa-receipt text-amber-600"></i>
+                    <span class="hidden sm:inline">ออเดอร์</span>
+                    <span id="orderBadge" class="bg-rose-500 text-white text-[10px] font-bold px-1.5 rounded-full hidden">0</span>
+                </button>
+
+                <!-- Switch Account / Logout Button -->
+                <button onclick="logoutUser()" class="bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 p-2 rounded-xl text-xs transition" title="สลับบัญชี / ออกจากระบบ">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+
+                <!-- Mobile Sidebar Toggle -->
+                <button id="mobileSidebarToggle" class="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-xl border border-slate-200">
+                    <i class="fa-solid fa-bars text-base"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ================= MAIN CONTENT WORKSPACE ================= -->
+    <div class="flex-1 flex relative overflow-hidden">
+        
+        <!-- Sidebar -->
+        <aside id="sidebar" class="absolute lg:relative z-20 inset-y-0 left-0 w-full sm:w-96 bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full lg:translate-x-0 shadow-2xl lg:shadow-none">
+            
+            <!-- Mobile Close Bar -->
+            <div class="p-3 lg:hidden flex justify-between items-center border-b bg-slate-50">
+                <span class="font-semibold text-slate-700 text-sm">เมนูจัดการ & ค้นหาสวนผัก</span>
+                <button id="closeSidebarBtn" class="text-slate-500 hover:text-slate-800 p-1.5 rounded-lg bg-white border">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
+            </div>
+
+            <!-- ================= BUYER SIDEBAR VIEW ================= -->
+            <div id="buyerViewSection" class="flex-1 flex flex-col overflow-hidden">
+                <!-- Real-Time Community Green Stats -->
+                <div class="p-4 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 border-b border-emerald-100">
+                    <div class="text-xs font-semibold text-emerald-800 mb-2 flex items-center justify-between">
+                        <span><i class="fa-solid fa-seedling mr-1.5 text-emerald-600"></i>พื้นที่สีเขียวกินได้รอบชุมชน</span>
+                        <span class="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full">เรียลไทม์</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div class="bg-white/90 p-2 rounded-xl border border-emerald-100 shadow-sm">
+                            <div id="statGardensCount" class="text-base font-bold text-emerald-700">0</div>
+                            <div class="text-[10px] text-slate-600">จุดปลูกผัก</div>
+                        </div>
+                        <div class="bg-white/90 p-2 rounded-xl border border-emerald-100 shadow-sm">
+                            <div id="statGreenArea" class="text-base font-bold text-emerald-700">0</div>
+                            <div class="text-[10px] text-slate-600">ตร.ม. สีเขียว</div>
+                        </div>
+                        <div class="bg-white/90 p-2 rounded-xl border border-emerald-100 shadow-sm">
+                            <div id="statReadyItems" class="text-base font-bold text-emerald-700">0</div>
+                            <div class="text-[10px] text-slate-600">ชนิดพร้อมส่ง</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search & Filters -->
+                <div class="p-3.5 space-y-2.5 border-b border-slate-100 bg-white">
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" id="searchInput" placeholder="ค้นหาชื่อสวน, กรีนโอ๊ค, กะเพรา, เคล..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <select id="zoneFilter" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700">
+                            <option value="ALL">ทุกโซนพื้นที่</option>
+                            <option value="TU_RANGSIT">มธ.รังสิต / เชียงราก</option>
+                            <option value="KHLONG_LUANG">คลองหลวง / คลอง 1-2</option>
+                            <option value="RANGSIT_CITY">เมืองรังสิต</option>
+                        </select>
+                        <select id="categoryFilter" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700">
+                            <option value="ALL">ทุกประเภทผัก</option>
+                            <option value="SALAD">ผักสลัดออร์แกนิก</option>
+                            <option value="KITCHEN">ผักสวนครัว</option>
+                            <option value="NATIVE">ผักพื้นบ้าน / สมุนไพร</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Count Bar -->
+                <div class="px-4 py-2 bg-slate-100/70 border-b flex justify-between items-center text-xs text-slate-500">
+                    <span>พบจุดปลูกผัก (<span id="resultCount" class="font-bold text-emerald-700">0</span> แห่ง)</span>
+                    <button onclick="resetFilters()" class="text-emerald-600 hover:underline font-medium">ล้างตัวกรอง</button>
+                </div>
+
+                <!-- Garden Cards -->
+                <div id="gardenList" class="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar"></div>
+            </div>
+
+            <!-- ================= SELLER SIDEBAR DASHBOARD ================= -->
+            <div id="sellerViewSection" class="flex-1 flex flex-col overflow-hidden hidden bg-slate-50">
+                <!-- Seller Header -->
+                <div class="p-4 bg-gradient-to-r from-emerald-700 to-green-700 text-white flex justify-between items-center shadow-sm">
+                    <div>
+                        <h3 class="font-bold text-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-store"></i> แดชบอร์ดผู้ขาย / เจ้าของสวน
+                        </h3>
+                        <p class="text-[11px] text-emerald-100 mt-0.5" id="sellerContactSummary">จัดการสวน ราคา และออเดอร์เข้าจริง</p>
+                    </div>
+                    <button onclick="openRegisterModal()" class="bg-white text-emerald-700 px-3 py-2 rounded-xl text-xs font-bold shadow hover:bg-emerald-50 transition active:scale-95 flex items-center gap-1 flex-shrink-0">
+                        <i class="fa-solid fa-plus"></i> เพิ่มสวน
+                    </button>
+                </div>
+
+                <!-- Seller's Gardens -->
+                <div class="px-4 py-2 border-b bg-white text-xs font-semibold text-slate-700 flex justify-between items-center">
+                    <span>สวนผักของคุณบนแผนที่</span>
+                    <span id="sellerGardenCount" class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[11px]">0 แห่ง</span>
+                </div>
+                <div id="sellerGardenList" class="max-h-44 overflow-y-auto p-3 space-y-2 custom-scrollbar border-b border-slate-200"></div>
+
+                <!-- Real Incoming Orders Manager -->
+                <div class="flex-1 flex flex-col overflow-hidden bg-white p-3.5">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <i class="fa-solid fa-bell text-amber-500"></i> คำสั่งซื้อเข้าจริง (อัปเดตสถานะ)
+                        </h4>
+                        <span id="incomingOrderCount" class="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">0 ออเดอร์</span>
+                    </div>
+                    <div id="sellerIncomingOrders" class="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar pr-1">
+                        <div class="text-center text-xs text-slate-400 py-6 bg-slate-50 rounded-xl border border-dashed">ยังไม่มีคำสั่งซื้อเข้ามาในร้านของคุณ</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Map Canvas -->
+        <main class="flex-1 relative bg-slate-200">
+            <div id="map"></div>
+
+            <!-- Map Picking Banner -->
+            <div id="mapClickHint" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-slate-900/90 backdrop-blur text-white text-xs px-4 py-2.5 rounded-full shadow-xl flex items-center gap-2 border border-emerald-500/40">
+                <i class="fa-solid fa-hand-pointer text-emerald-400 animate-bounce"></i>
+                <span>คลิกเลือกจุดที่ตั้งสวนของคุณบนแผนที่ได้เลย</span>
+            </div>
+
+            <!-- Floating Controls -->
+            <div class="absolute bottom-6 right-5 z-10 flex flex-col space-y-2.5">
+                <button onclick="recenterTU()" class="bg-white hover:bg-slate-50 text-slate-700 hover:text-emerald-600 px-3.5 py-2.5 rounded-full shadow-lg border border-slate-200 transition flex items-center space-x-1.5 text-xs font-medium">
+                    <i class="fa-solid fa-building-columns text-emerald-600"></i>
+                    <span class="hidden sm:inline">โซน มธ.รังสิต</span>
+                </button>
+                <button onclick="locateUserGPS()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2.5 rounded-full shadow-lg shadow-blue-200 transition flex items-center space-x-1.5 text-xs font-medium">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                    <span>ตำแหน่งฉัน (GPS)</span>
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= MODAL: ADD / EDIT GARDEN (SELLER) ================= -->
+    <div id="registerModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
+            <div class="bg-gradient-to-r from-emerald-600 to-green-600 text-white p-4 flex justify-between items-center">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i class="fa-solid fa-seedling"></i> เพิ่มจุดปลูกผัก & ตั้งราคาสินค้า
+                </h3>
+                <button onclick="closeRegisterModal()" class="text-white/80 hover:text-white p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <form id="registerForm" class="p-5 overflow-y-auto space-y-3.5 text-sm custom-scrollbar">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">ชื่อสวน / ชื่อร้านค้าชุมชน <span class="text-rose-500">*</span></label>
+                    <input type="text" id="regName" required placeholder="เช่น สวนผักสลัดออร์แกนิก เชียงราก 1" class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">โซนพื้นที่</label>
+                        <select id="regZone" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                            <option value="TU_RANGSIT">มธ.รังสิต / เชียงราก</option>
+                            <option value="KHLONG_LUANG">คลองหลวง / คลอง 1-2</option>
+                            <option value="RANGSIT_CITY">เมืองรังสิต</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">ประเภทผักหลัก</label>
+                        <select id="regCategory" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white">
+                            <option value="SALAD">ผักสลัดออร์แกนิก</option>
+                            <option value="KITCHEN">ผักสวนครัว</option>
+                            <option value="NATIVE">ผักพื้นบ้าน / สมุนไพร</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2.5">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">พื้นที่ (ตร.ม.)</label>
+                        <input type="number" id="regArea" value="25" min="1" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">เบอร์โทรร้าน <span class="text-rose-500">*</span></label>
+                        <input type="tel" id="regPhone" required placeholder="08X-XXX-XXXX" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">LINE ID ร้าน</label>
+                        <input type="text" id="regLine" placeholder="line_id" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs">
+                    </div>
+                </div>
+
+                <!-- Image Upload or URL -->
+                <div class="space-y-2">
+                    <label class="block text-xs font-semibold text-slate-700">รูปภาพสวน / ผักสดของร้าน</label>
+                    <div class="flex gap-2">
+                        <input type="url" id="regImage" oninput="previewImageUrl(this.value)" placeholder="วางลิงก์รูปภาพ URL หรือกดอัปโหลดรูป" value="https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&w=600&q=80" class="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-xs">
+                        <label class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer flex items-center gap-1 flex-shrink-0 transition">
+                            <i class="fa-solid fa-camera"></i> อัปโหลดรูป
+                            <input type="file" accept="image/*" onchange="handleImageFileUpload(event)" class="hidden">
+                        </label>
+                    </div>
+                    <div class="h-28 w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
+                        <img id="regImagePreview" src="https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&w=600&q=80" onerror="this.src='https://placehold.co/600x300/16a34a/ffffff?text=Local+Eatable+Garden'" class="w-full h-full object-cover">
+                    </div>
+                </div>
+
+                <!-- Dynamic Veggies & Prices Builder -->
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center">
+                        <label class="block text-xs font-semibold text-slate-700">รายการผักและราคาขาย <span class="text-rose-500">*</span></label>
+                        <button type="button" onclick="addVeggieInputRow()" class="text-xs text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1">
+                            <i class="fa-solid fa-plus-circle"></i> เพิ่มชนิดผัก
+                        </button>
+                    </div>
+                    <div id="veggieRowsContainer" class="space-y-2">
+                        <div class="flex gap-2 veggie-row">
+                            <input type="text" placeholder="ชื่อผัก เช่น กรีนโอ๊ค (กก.)" required class="veggie-name flex-1 px-3 py-1.5 border border-slate-300 rounded-xl text-xs">
+                            <input type="number" placeholder="ราคา (บาท)" required min="1" class="veggie-price w-24 px-3 py-1.5 border border-slate-300 rounded-xl text-xs">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPS / Map Coordinates Picker -->
+                <div class="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 space-y-2">
+                    <div class="text-xs font-bold text-emerald-900">พิกัดตำแหน่งสวนบนแผนที่</div>
+                    <div id="latLngStatus" class="text-[11px] text-emerald-700">ยังไม่ได้ระบุ (กดใช้ GPS ปัจจุบันของคุณ หรือจิ้มจุดบนแผนที่)</div>
+                    <div class="flex flex-wrap gap-2 pt-1">
+                        <button type="button" onclick="useCurrentGPSForRegister()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm flex items-center gap-1">
+                            <i class="fa-solid fa-location-crosshairs"></i> ใช้พิกัด GPS ปัจจุบันของฉัน
+                        </button>
+                        <button type="button" onclick="pickLocationOnMap()" class="bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1">
+                            <i class="fa-solid fa-map-pin"></i> จิ้มตำแหน่งบนแผนที่
+                        </button>
+                    </div>
+                </div>
+
+                <input type="hidden" id="regLat">
+                <input type="hidden" id="regLng">
+
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl shadow-md transition">
+                    <i class="fa-solid fa-check-circle mr-1"></i> บันทึกและเปิดขายบนแผนที่ทันที
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: ORDER VEGGIES (BUYER) ================= -->
+    <div id="orderModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div class="bg-emerald-700 text-white p-4 flex justify-between items-center">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i class="fa-solid fa-basket-shopping"></i> สั่งจองผัก / นัดรับสินค้า
+                </h3>
+                <button onclick="closeOrderModal()" class="text-white/80 hover:text-white p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form id="orderForm" class="p-5 space-y-3.5 text-sm">
+                <div class="bg-emerald-50/80 p-3 rounded-xl border border-emerald-100">
+                    <div class="text-[11px] text-emerald-700 font-medium">สั่งซื้อจากร้าน:</div>
+                    <div id="orderGardenName" class="font-bold text-slate-800 text-sm mt-0.5"></div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">เลือกรายการผัก</label>
+                    <select id="orderItemSelect" onchange="calculateTotal()" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white"></select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">จำนวน</label>
+                        <input type="number" id="orderQty" min="1" value="1" oninput="calculateTotal()" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">ราคารวม</label>
+                        <div id="totalPrice" class="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl font-bold text-emerald-700 text-center text-sm">0 ฿</div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">วันและเวลานัดรับ</label>
+                    <input type="datetime-local" id="pickupTime" required class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">ชื่อและเบอร์ติดต่อผู้สั่งจอง</label>
+                    <input type="text" id="buyerNameInput" required class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs">
+                </div>
+
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl shadow-md transition">
+                    ยืนยันการสั่งซื้อจริง
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: DIRECT IN-APP CHAT WITH SELLER ================= -->
+    <div id="chatModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col h-[520px] max-h-[85vh]">
+            <div class="bg-emerald-700 text-white p-4 flex justify-between items-center">
+                <div class="min-w-0">
+                    <h3 class="font-bold text-sm truncate" id="chatGardenTitle">แชตกับร้านค้า</h3>
+                    <p class="text-[11px] text-emerald-100 truncate" id="chatGardenContact"></p>
+                </div>
+                <button onclick="closeChatModal()" class="text-white/80 hover:text-white p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="chatMessagesBox" class="flex-1 overflow-y-auto p-4 space-y-2.5 bg-slate-50 custom-scrollbar text-xs"></div>
+            <form id="chatSendForm" class="p-3 bg-white border-t border-slate-200 flex gap-2">
+                <input type="text" id="chatInputText" required placeholder="พิมพ์ข้อความสอบถามหรือนัดรับผัก..." class="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: MY ORDERS TRACKER ================= -->
+    <div id="myOrdersModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="bg-slate-800 text-white p-4 flex justify-between items-center">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i class="fa-solid fa-receipt text-amber-400"></i> สถานะคำสั่งซื้อ & ประวัติการจอง
+                </h3>
+                <button onclick="closeMyOrdersModal()" class="text-white/80 hover:text-white p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="myOrdersList" class="p-4 overflow-y-auto space-y-3 flex-1 custom-scrollbar bg-slate-50"></div>
+        </div>
+    </div>
+
+    <script>
+        let map, markersLayer, userLocationMarker = null, tempPickMarker = null;
+        let selectedGardenForOrder = null;
+        let activeChatGardenId = null;
+        let isPickingMapLocation = false;
+        let currentImageData = "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&w=600&q=80";
+
+        // Default Gardens around TU Rangsit, Chiang Rak, Khlong Luang
+        const defaultGardens = [
+            {
+                id: 101,
+                ownerEmail: "seller@demo.com",
+                name: "สวนผักออร์แกนิก ลุงสมชาย (ประตูเชียงราก 1)",
+                zone: "TU_RANGSIT",
+                category: "SALAD",
+                categoryLabel: "ผักสลัดออร์แกนิก",
+                area: 120,
+                lat: 14.0725,
+                lng: 100.6012,
+                image: "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&w=600&q=80",
+                phone: "081-234-5678",
+                lineId: "somchai_organic",
+                items: [
+                    { name: "กรีนโอ๊ค (กก.)", price: 45 },
+                    { name: "เรดโอ๊ค (กก.)", price: 45 },
+                    { name: "ผักบุ้งจีนอินทรีย์ (กำ)", price: 20 }
+                ]
+            },
+            {
+                id: 102,
+                ownerEmail: "tu_green@demo.com",
+                name: "กรีนเฮ้าส์นักศึกษา มธ. (ฝั่งเชียงราก 2)",
+                zone: "TU_RANGSIT",
+                category: "SALAD",
+                categoryLabel: "ผักสลัดออร์แกนิก",
+                area: 55,
+                lat: 14.0676,
+                lng: 100.6075,
+                image: "https://images.unsplash.com/photo-1530836369250-ef72a3f5cda8?auto=format&fit=crop&w=600&q=80",
+                phone: "089-876-5432",
+                lineId: "tu_greenhouse",
+                items: [
+                    { name: "เคลใบหยิก Kale (ถุง)", price: 60 },
+                    { name: "บัตเตอร์เฮด (หัว)", price: 35 }
+                ]
+            },
+            {
+                id: 103,
+                ownerEmail: "kaew@demo.com",
+                name: "สวนครัวหลังบ้าน ป้าแก้ว คลองหลวง คลอง 1",
+                zone: "KHLONG_LUANG",
+                category: "KITCHEN",
+                categoryLabel: "ผักสวนครัว",
+                area: 85,
+                lat: 14.0788,
+                lng: 100.6218,
+                image: "https://images.unsplash.com/photo-1592417817098-8f3d6eb19655?auto=format&fit=crop&w=600&q=80",
+                phone: "086-111-2233",
+                lineId: "kaew_garden",
+                items: [
+                    { name: "กะเพราแดงปลอดสาร (กำ)", price: 15 },
+                    { name: "พริกจินดาสด (ขีด)", price: 15 },
+                    { name: "โหระพา (กำ)", price: 15 }
+                ]
+            }
+        ];
+
+        // Persistent State
+        let users = JSON.parse(localStorage.getItem('lem_users_v3')) || [
+            { name: "น้องมายด์ (ผู้ซื้อ)", email: "buyer@demo.com", password: "123", phone: "089-123-4567", lineId: "mind_tu", role: "buyer" },
+            { name: "ลุงสมชาย ออร์แกนิก", email: "seller@demo.com", password: "123", phone: "081-234-5678", lineId: "somchai_organic", role: "seller" }
+        ];
+        let currentUser = JSON.parse(localStorage.getItem('lem_current_user_v3')) || null;
+        let gardens = JSON.parse(localStorage.getItem('lem_gardens_v3')) || defaultGardens;
+        let orders = JSON.parse(localStorage.getItem('lem_orders_v3')) || [];
+        let chats = JSON.parse(localStorage.getItem('lem_chats_v3')) || {};
+
+        // Toast Helper
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            const bg = type === 'error' ? 'bg-rose-700' : type === 'info' ? 'bg-slate-800' : 'bg-emerald-800';
+            const icon = type === 'error' ? 'fa-circle-exclamation text-rose-300' : type === 'info' ? 'fa-circle-info text-sky-300' : 'fa-circle-check text-emerald-300';
+            
+            toast.className = `${bg} text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center space-x-2.5 text-xs sm:text-sm font-medium transition-all duration-300 transform translate-y-2 opacity-0`;
+            toast.innerHTML = `<i class="fa-solid ${icon} text-base"></i><span>${message}</span>`;
+            container.appendChild(toast);
+
+            requestAnimationFrame(() => toast.classList.remove('translate-y-2', 'opacity-0'));
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3400);
+        }
+
+        // Custom Confirm Dialog
+        function customConfirm(title, message, onConfirm) {
+            const modal = document.getElementById('confirmModal');
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            modal.classList.remove('hidden');
+
+            const okBtn = document.getElementById('confirmOkBtn');
+            const cancelBtn = document.getElementById('confirmCancelBtn');
+            const cleanup = () => { modal.classList.add('hidden'); okBtn.onclick = null; cancelBtn.onclick = null; };
+            okBtn.onclick = () => { cleanup(); onConfirm(); };
+            cancelBtn.onclick = cleanup;
+        }
+
+        // ================= AUTHENTICATION LOGIC =================
+        function switchAuthTab(tab) {
+            const isReg = tab === 'register';
+            document.getElementById('tabRegister').className = `py-3.5 transition ${isReg ? 'text-emerald-700 border-b-2 border-emerald-600 bg-white' : 'text-slate-500 hover:text-slate-800'}`;
+            document.getElementById('tabLogin').className = `py-3.5 transition ${!isReg ? 'text-emerald-700 border-b-2 border-emerald-600 bg-white' : 'text-slate-500 hover:text-slate-800'}`;
+            document.getElementById('registerUserForm').classList.toggle('hidden', !isReg);
+            document.getElementById('loginUserForm').classList.toggle('hidden', isReg);
+        }
+
+        function openAuthModal(allowClose = false) {
+            document.getElementById('authModal').classList.remove('hidden');
+            document.getElementById('closeAuthBtn').classList.toggle('hidden', !allowClose);
+        }
+
+        function closeAuthModal() {
+            if (currentUser) {
+                document.getElementById('authModal').classList.add('hidden');
+            }
+        }
+
+        function handleUserRegister(e) {
+            e.preventDefault();
+            const role = document.querySelector('input[name="authRole"]:checked').value;
+            const name = document.getElementById('authRegName').value.trim();
+            const email = document.getElementById('authRegEmail').value.trim().toLowerCase();
+            const password = document.getElementById('authRegPassword').value;
+            const phone = document.getElementById('authRegPhone').value.trim();
+            const lineId = document.getElementById('authRegLine').value.trim().replace(/^@/, '');
+
+            const existingIdx = users.findIndex(u => u.email === email);
+            const userObj = { name, email, password, phone, lineId, role };
+            if (existingIdx >= 0) {
+                users[existingIdx] = userObj;
+            } else {
+                users.push(userObj);
+            }
+            localStorage.setItem('lem_users_v3', JSON.stringify(users));
+            setLoggedInUser(userObj);
+            showToast(`ลงทะเบียนสำเร็จ! ยินดีต้อนรับคุณ ${name}`);
+        }
+
+        function handleUserLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('authLoginEmail').value.trim().toLowerCase();
+            const password = document.getElementById('authLoginPassword').value;
+            const found = users.find(u => u.email === email && u.password === password);
+            if (!found) {
+                showToast("อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่", "error");
+                return;
+            }
+            setLoggedInUser(found);
+            showToast(`เข้าสู่ระบบสำเร็จ! สวัสดีคุณ ${found.name}`);
+        }
+
+        function quickDemoLogin(role) {
+            const demo = users.find(u => u.role === role) || users[0];
+            setLoggedInUser(demo);
+            showToast(`เข้าสู่ระบบทดลองในฐานะ "${role === 'seller' ? 'ผู้ขาย / เจ้าของสวน' : 'ผู้ซื้อ'}"`);
+        }
+
+        function setLoggedInUser(user) {
+            currentUser = user;
+            localStorage.setItem('lem_current_user_v3', JSON.stringify(user));
+            document.getElementById('authModal').classList.add('hidden');
+
+            // Update Header Badge
+            document.getElementById('userDisplayName').textContent = user.name;
+            const isSeller = user.role === 'seller';
+            document.getElementById('userDisplayRole').textContent = isSeller ? 'ผู้ขาย / เจ้าของสวน' : 'ผู้ซื้อในชุมชน';
+            document.getElementById('userRoleIcon').innerHTML = isSeller ? '<i class="fa-solid fa-store"></i>' : '<i class="fa-solid fa-user"></i>';
+
+            // Pre-fill seller contact info when opening add garden modal
+            document.getElementById('regPhone').value = user.phone || '';
+            document.getElementById('regLine').value = user.lineId || '';
+            document.getElementById('buyerNameInput').value = `${user.name} (${user.phone || ''})`;
+
+            // Switch Sidebar View automatically based on authenticated role
+            document.getElementById('buyerViewSection').classList.toggle('hidden', isSeller);
+            document.getElementById('sellerViewSection').classList.toggle('hidden', !isSeller);
+
+            if (isSeller) {
+                document.getElementById('sellerContactSummary').textContent = `${user.name} • โทร ${user.phone}`;
+                if (window.innerWidth < 1024) {
+                    document.getElementById('sidebar').classList.remove('-translate-x-full');
+                }
+                renderSellerDashboard();
+            }
+            refreshApp();
+        }
+
+        function logoutUser() {
+            currentUser = null;
+            localStorage.removeItem('lem_current_user_v3');
+            openAuthModal(false);
+            showToast("ออกจากระบบเรียบร้อยแล้ว", "info");
+        }
+
+        // ================= INITIALIZE MAP & APP =================
+        window.onload = function() {
+            map = L.map('map', { zoomControl: false }).setView([14.0728, 100.6015], 14);
+            L.control.zoom({ position: 'topright' }).addTo(map);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap | Local Eatable Map'
+            }).addTo(map);
+
+            markersLayer = L.layerGroup().addTo(map);
+
+            // Click on map to pick garden coordinates
+            map.on('click', function(e) {
+                const lat = e.latlng.lat;
+                const lng = e.latlng.lng;
+                document.getElementById('regLat').value = lat.toFixed(6);
+                document.getElementById('regLng').value = lng.toFixed(6);
+                document.getElementById('latLngStatus').innerHTML = `<span class="font-semibold text-emerald-800">เลือกพิกัดแล้ว:</span> ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+                if (tempPickMarker) map.removeLayer(tempPickMarker);
+                tempPickMarker = L.marker([lat, lng]).addTo(map).bindPopup("ตำแหน่งสวนที่เลือก").openPopup();
+
+                if (isPickingMapLocation) {
+                    isPickingMapLocation = false;
+                    document.getElementById('mapClickHint').classList.add('hidden');
+                    document.getElementById('registerModal').classList.remove('hidden');
+                    showToast("ปักหมุดพิกัดบนแผนที่เรียบร้อยแล้ว");
+                }
+            });
+
+            // Mobile Sidebar
+            document.getElementById('mobileSidebarToggle').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.remove('-translate-x-full');
+            });
+            document.getElementById('closeSidebarBtn').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+            });
+
+            // Filters & Forms
+            document.getElementById('searchInput').addEventListener('input', refreshApp);
+            document.getElementById('zoneFilter').addEventListener('change', refreshApp);
+            document.getElementById('categoryFilter').addEventListener('change', refreshApp);
+
+            document.getElementById('registerUserForm').addEventListener('submit', handleUserRegister);
+            document.getElementById('loginUserForm').addEventListener('submit', handleUserLogin);
+            document.getElementById('registerForm').addEventListener('submit', handleRegisterSubmit);
+            document.getElementById('orderForm').addEventListener('submit', handleOrderSubmit);
+            document.getElementById('chatSendForm').addEventListener('submit', handleSendChatMessage);
+
+            // Default Pickup Time (+2 Hours)
+            const now = new Date();
+            now.setHours(now.getHours() + 2);
+            now.setMinutes(0);
+            document.getElementById('pickupTime').value = now.toISOString().slice(0, 16);
+
+            if (currentUser) {
+                setLoggedInUser(currentUser);
+            } else {
+                openAuthModal(false);
+                refreshApp();
+            }
+        };
+
+        function refreshApp() {
+            const search = document.getElementById('searchInput').value.toLowerCase().trim();
+            const zone = document.getElementById('zoneFilter').value;
+            const cat = document.getElementById('categoryFilter').value;
+
+            const filtered = gardens.filter(g => {
+                const matchS = g.name.toLowerCase().includes(search) || g.items.some(i => i.name.toLowerCase().includes(search));
+                const matchZ = zone === 'ALL' || g.zone === zone;
+                const matchC = cat === 'ALL' || g.category === cat;
+                return matchS && matchZ && matchC;
+            });
+
+            renderMarkers(filtered);
+            renderBuyerCards(filtered);
+            updateStats(filtered);
+            updateOrderBadge();
+        }
+
+        function renderMarkers(data) {
+            markersLayer.clearLayers();
+            data.forEach(g => {
+                const marker = L.marker([g.lat, g.lng], {
+                    icon: L.divIcon({
+                        html: `<div style="background-color: #16a34a; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 4px 12px rgba(22,163,74,0.45); color: white;"><i class="fa-solid fa-leaf text-sm"></i></div>`,
+                        className: '', iconSize: [38, 38], iconAnchor: [19, 19], popupAnchor: [0, -19]
+                    })
+                });
+
+                const itemsHtml = g.items.map(i => `
+                    <li class="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
+                        <span class="text-slate-700">${i.name}</span>
+                        <span class="font-bold text-emerald-700">${i.price} ฿</span>
+                    </li>
+                `).join('');
+
+                const lineLink = g.lineId ? `https://line.me/ti/p/~${encodeURIComponent(g.lineId)}` : '#';
+                const lineBtnHtml = g.lineId
+                    ? `<a href="${lineLink}" target="_blank" rel="noopener noreferrer" class="flex-1 bg-[#06C755] hover:bg-[#05b34c] text-white font-semibold text-[11px] py-2 rounded-xl flex items-center justify-center gap-1 shadow-sm transition">
+                        <i class="fa-brands fa-line text-sm"></i> แอด LINE
+                       </a>`
+                    : '';
+
+                marker.bindPopup(`
+                    <div class="rounded-2xl overflow-hidden font-sans bg-white">
+                        <div class="relative h-28 bg-slate-200">
+                            <img src="${g.image}" onerror="this.src='https://placehold.co/600x300/16a34a/ffffff?text=Fresh+Veggies'" class="w-full h-full object-cover">
+                            <span class="absolute bottom-2 left-2 bg-emerald-600/95 text-white text-[10px] font-medium px-2.5 py-0.5 rounded-full shadow">
+                                ${g.categoryLabel || 'ผักสดชุมชน'}
+                            </span>
+                        </div>
+                        <div class="p-3.5 space-y-2.5">
+                            <div>
+                                <h4 class="font-bold text-slate-800 text-sm leading-snug">${g.name}</h4>
+                                <div class="text-[11px] text-slate-500 mt-0.5">
+                                    <i class="fa-solid fa-phone text-emerald-600 mr-1"></i>${g.phone} ${g.lineId ? `• LINE: @${g.lineId}` : ''}
+                                </div>
+                            </div>
+
+                            <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                <div class="text-[10px] font-semibold text-slate-500 mb-1">รายการผักพร้อมส่ง:</div>
+                                <ul>${itemsHtml}</ul>
+                            </div>
+
+                            <!-- Direct Contact Buttons (LINE, Call, In-App Chat) -->
+                            <div class="flex gap-1.5">
+                                ${lineBtnHtml}
+                                <a href="tel:${g.phone}" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-[11px] py-2 rounded-xl flex items-center justify-center gap-1 border border-slate-200 transition">
+                                    <i class="fa-solid fa-phone text-emerald-600"></i> โทรออก
+                                </a>
+                                <button onclick="openChatModal(${g.id})" class="flex-1 bg-sky-50 hover:bg-sky-100 text-sky-800 font-semibold text-[11px] py-2 rounded-xl flex items-center justify-center gap-1 border border-sky-200 transition">
+                                    <i class="fa-solid fa-comments text-sky-600"></i> แชต
+                                </button>
+                            </div>
+
+                            <button onclick="openOrderModal(${g.id})" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-basket-shopping"></i> สั่งจองผัก / นัดรับสินค้า
+                            </button>
+                        </div>
+                    </div>
+                `);
+                markersLayer.addLayer(marker);
+            });
+        }
+
+        function renderBuyerCards(data) {
+            const container = document.getElementById('gardenList');
+            document.getElementById('resultCount').textContent = data.length;
+
+            if (data.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-10 text-slate-400 space-y-2">
+                        <i class="fa-solid fa-seedling text-3xl text-slate-300"></i>
+                        <p class="text-xs">ไม่พบจุดปลูกผักที่ตรงกับเงื่อนไข</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = data.map(g => `
+                <div onclick="focusGardenOnMap(${g.lat}, ${g.lng})" class="bg-white p-3 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-md transition-all cursor-pointer flex space-x-3 group">
+                    <img src="${g.image}" onerror="this.src='https://placehold.co/200x200/16a34a/ffffff?text=Garden'" class="w-20 h-20 rounded-xl object-cover flex-shrink-0 group-hover:scale-105 transition-transform">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-center gap-1">
+                            <span class="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md truncate">${g.categoryLabel || 'ผักสด'}</span>
+                            <span class="text-[10px] text-slate-400 flex-shrink-0">${g.area} ตร.ม.</span>
+                        </div>
+                        <h4 class="font-bold text-slate-800 text-xs sm:text-sm truncate mt-1 group-hover:text-emerald-700">${g.name}</h4>
+                        <div class="text-[11px] text-slate-600 font-medium truncate mt-1">
+                            <i class="fa-solid fa-leaf text-emerald-500 mr-1 text-[10px]"></i>${g.items.map(i => `${i.name} ${i.price}฿`).join(', ')}
+                        </div>
+                        <div class="text-[10px] text-slate-400 mt-1.5 flex items-center justify-between">
+                            <span><i class="fa-brands fa-line text-[#06C755] mr-1"></i>${g.lineId || g.phone}</span>
+                            <span class="text-emerald-600 font-semibold">เปิดดู & ติดต่อ ›</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function focusGardenOnMap(lat, lng) {
+            map.flyTo([lat, lng], 16, { duration: 1.1 });
+            markersLayer.eachLayer(m => {
+                const pos = m.getLatLng();
+                if (Math.abs(pos.lat - lat) < 0.0001 && Math.abs(pos.lng - lng) < 0.0001) {
+                    setTimeout(() => m.openPopup(), 350);
+                }
+            });
+            if (window.innerWidth < 1024) {
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+            }
+        }
+
+        function updateStats(data) {
+            document.getElementById('statGardensCount').textContent = data.length;
+            document.getElementById('statGreenArea').textContent = data.reduce((a, c) => a + (c.area || 0), 0).toLocaleString();
+            document.getElementById('statReadyItems').textContent = data.reduce((a, c) => a + c.items.length, 0);
+        }
+
+        function resetFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('zoneFilter').value = 'ALL';
+            document.getElementById('categoryFilter').value = 'ALL';
+            refreshApp();
+        }
+
+        function recenterTU() {
+            map.flyTo([14.0728, 100.6015], 14);
+        }
+
+        function locateUserGPS() {
+            if (!navigator.geolocation) {
+                showToast("เบราว์เซอร์ไม่รองรับ GPS", "error");
+                return;
+            }
+            showToast("กำลังค้นหาตำแหน่งปัจจุบันของคุณ...", "info");
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    map.flyTo([lat, lng], 15);
+
+                    if (userLocationMarker) map.removeLayer(userLocationMarker);
+                    userLocationMarker = L.marker([lat, lng], {
+                        icon: L.divIcon({
+                            html: `
+                                <div style="position: relative; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;">
+                                    <div class="gps-pulse" style="position: absolute; width: 22px; height: 22px; border-radius: 50%; background: rgba(37, 99, 235, 0.45);"></div>
+                                    <div style="position: relative; width: 14px; height: 14px; border-radius: 50%; background: #2563eb; border: 2.5px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.35);"></div>
+                                </div>`,
+                            className: '', iconSize: [22, 22], iconAnchor: [11, 11]
+                        })
+                    }).addTo(map).bindPopup(`<div class="p-2.5 text-xs font-bold text-blue-700 text-center">📍 ตำแหน่งปัจจุบันของคุณ</div>`).openPopup();
+                    showToast("ปักหมุดตำแหน่งปัจจุบันของคุณแล้ว");
+                },
+                () => showToast("กรุณาอนุญาตการเข้าถึงตำแหน่ง GPS บนเบราว์เซอร์", "error")
+            );
+        }
+
+        // ================= SELLER GARDEN & PRODUCT BUILDER =================
+        function openRegisterModal() {
+            document.getElementById('registerModal').classList.remove('hidden');
+        }
+
+        function closeRegisterModal() {
+            document.getElementById('registerModal').classList.add('hidden');
+            isPickingMapLocation = false;
+            document.getElementById('mapClickHint').classList.add('hidden');
+        }
+
+        function addVeggieInputRow() {
+            const container = document.getElementById('veggieRowsContainer');
+            const row = document.createElement('div');
+            row.className = 'flex gap-2 veggie-row items-center';
+            row.innerHTML = `
+                <input type="text" placeholder="ชื่อผัก เช่น คะน้า (กำ)" required class="veggie-name flex-1 px-3 py-1.5 border border-slate-300 rounded-xl text-xs">
+                <input type="number" placeholder="ราคา" required min="1" class="veggie-price w-24 px-3 py-1.5 border border-slate-300 rounded-xl text-xs">
+                <button type="button" onclick="this.parentElement.remove()" class="text-rose-500 hover:text-rose-700 px-1.5"><i class="fa-solid fa-xmark"></i></button>
+            `;
+            container.appendChild(row);
+        }
+
+        function previewImageUrl(url) {
+            if (url.trim()) {
+                currentImageData = url.trim();
+                document.getElementById('regImagePreview').src = currentImageData;
+            }
+        }
+
+        function handleImageFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentImageData = e.target.result;
+                document.getElementById('regImagePreview').src = currentImageData;
+                document.getElementById('regImage').value = "";
+                showToast("อัปโหลดรูปภาพสินค้าสำเร็จ");
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function useCurrentGPSForRegister() {
+            if (!navigator.geolocation) {
+                showToast("เบราว์เซอร์ไม่รองรับ GPS", "error");
+                return;
+            }
+            showToast("กำลังดึงพิกัด GPS ปัจจุบัน...", "info");
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    document.getElementById('regLat').value = lat.toFixed(6);
+                    document.getElementById('regLng').value = lng.toFixed(6);
+                    document.getElementById('latLngStatus').innerHTML = `<span class="font-semibold text-emerald-800">พิกัด GPS ปัจจุบัน:</span> ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                    showToast("ดึงพิกัด GPS ปัจจุบันสำเร็จ");
+                },
+                () => showToast("ไม่สามารถดึง GPS ได้ กรุณากดปุ่ม 'จิ้มตำแหน่งบนแผนที่'", "error")
+            );
+        }
+
+        function pickLocationOnMap() {
+            isPickingMapLocation = true;
+            document.getElementById('registerModal').classList.add('hidden');
+            document.getElementById('mapClickHint').classList.remove('hidden');
+            if (window.innerWidth < 1024) {
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+            }
+            showToast("แตะจุดที่ตั้งสวนบนแผนที่ได้เลย", "info");
+        }
+
+        function handleRegisterSubmit(e) {
+            e.preventDefault();
+            const lat = parseFloat(document.getElementById('regLat').value) || (14.0725 + (Math.random() - 0.5) * 0.008);
+            const lng = parseFloat(document.getElementById('regLng').value) || (100.6015 + (Math.random() - 0.5) * 0.008);
+
+            const catVal = document.getElementById('regCategory').value;
+            const catLabels = { SALAD: "ผักสลัดออร์แกนิก", KITCHEN: "ผักสวนครัว", NATIVE: "ผักพื้นบ้าน / สมุนไพร" };
+
+            const rows = document.querySelectorAll('#veggieRowsContainer .veggie-row');
+            const items = [];
+            rows.forEach(r => {
+                const n = r.querySelector('.veggie-name').value.trim();
+                const p = parseInt(r.querySelector('.veggie-price').value, 10);
+                if (n && p > 0) items.push({ name: n, price: p });
+            });
+
+            if (items.length === 0) {
+                showToast("กรุณาระบุรายการผักและราคาอย่างน้อย 1 รายการ", "error");
+                return;
+            }
+
+            const newGarden = {
+                id: Date.now(),
+                ownerEmail: currentUser ? currentUser.email : "seller@demo.com",
+                name: document.getElementById('regName').value.trim(),
+                zone: document.getElementById('regZone').value,
+                category: catVal,
+                categoryLabel: catLabels[catVal] || "ผักสวนครัว",
+                area: parseInt(document.getElementById('regArea').value, 10) || 25,
+                lat,
+                lng,
+                image: currentImageData || "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&w=600&q=80",
+                phone: document.getElementById('regPhone').value.trim(),
+                lineId: document.getElementById('regLine').value.trim().replace(/^@/, ''),
+                items
+            };
+
+            gardens.unshift(newGarden);
+            localStorage.setItem('lem_gardens_v3', JSON.stringify(gardens));
+
+            if (tempPickMarker) { map.removeLayer(tempPickMarker); tempPickMarker = null; }
+            closeRegisterModal();
+            document.getElementById('registerForm').reset();
+            document.getElementById('veggieRowsContainer').innerHTML = `
+                <div class="flex gap-2 veggie-row">
+                    <input type="text" placeholder="ชื่อผัก เช่น กรีนโอ๊ค (กก.)" required class="veggie-name flex-1 px-3 py-1.5 border border-slate-300 rounded-xl text-xs">
+                    <input type="number" placeholder="ราคา (บาท)" required min="1" class="veggie-price w-24 px-3 py-1.5 border border-slate-300 rounded-xl text-xs">
+                </div>`;
+            document.getElementById('latLngStatus').textContent = "ยังไม่ได้ระบุ (กดใช้ GPS ปัจจุบันของคุณ หรือจิ้มจุดบนแผนที่)";
+
+            refreshApp();
+            renderSellerDashboard();
+            focusGardenOnMap(lat, lng);
+            showToast("เพิ่มจุดปลูกผักและเปิดขายเรียบร้อยแล้ว!");
+        }
+
+        // ================= DIRECT IN-APP CHAT =================
+        function openChatModal(gardenId) {
+            const g = gardens.find(x => x.id === gardenId);
+            if (!g) return;
+            activeChatGardenId = gardenId;
+            document.getElementById('chatGardenTitle').textContent = `แชตกับ: ${g.name}`;
+            document.getElementById('chatGardenContact').textContent = `โทร: ${g.phone} ${g.lineId ? `| LINE: @${g.lineId}` : ''}`;
+            renderChatMessages();
+            document.getElementById('chatModal').classList.remove('hidden');
+        }
+
+        function closeChatModal() {
+            document.getElementById('chatModal').classList.add('hidden');
+            activeChatGardenId = null;
+        }
+
+        function renderChatMessages() {
+            const box = document.getElementById('chatMessagesBox');
+            const thread = chats[activeChatGardenId] || [
+                { sender: "ร้านค้า", role: "seller", text: "สวัสดีครับ สอบถามรายการผักสดหรือนัดเวลารับได้เลยครับ 🌱", time: "เมื่อสักครู่" }
+            ];
+            box.innerHTML = thread.map(m => {
+                const isMine = currentUser && m.sender === currentUser.name;
+                return `
+                    <div class="flex flex-col ${isMine ? 'items-end' : 'items-start'}">
+                        <span class="text-[10px] text-slate-400 mb-0.5 px-1">${m.sender} • ${m.time}</span>
+                        <div class="max-w-[80%] px-3.5 py-2 rounded-2xl leading-relaxed ${isMine ? 'bg-emerald-600 text-white rounded-br-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm'}">
+                            ${m.text}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function handleSendChatMessage(e) {
+            e.preventDefault();
+            if (!activeChatGardenId) return;
+            const input = document.getElementById('chatInputText');
+            const text = input.value.trim();
+            if (!text) return;
+
+            if (!chats[activeChatGardenId]) {
+                chats[activeChatGardenId] = [
+                    { sender: "ร้านค้า", role: "seller", text: "สวัสดีครับ สอบถามรายการผักสดหรือนัดเวลารับได้เลยครับ 🌱", time: "เมื่อสักครู่" }
+                ];
+            }
+            chats[activeChatGardenId].push({
+                sender: currentUser ? currentUser.name : "ผู้ซื้อ",
+                role: currentUser ? currentUser.role : "buyer",
+                text,
+                time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+            });
+            localStorage.setItem('lem_chats_v3', JSON.stringify(chats));
+            input.value = '';
+            renderChatMessages();
+        }
+
+        // ================= PRE-ORDER & STATUS TRACKER =================
+        function openOrderModal(gardenId) {
+            selectedGardenForOrder = gardens.find(g => g.id === gardenId);
+            if (!selectedGardenForOrder) return;
+
+            document.getElementById('orderGardenName').textContent = selectedGardenForOrder.name;
+            document.getElementById('orderItemSelect').innerHTML = selectedGardenForOrder.items.map((i, idx) =>
+                `<option value="${idx}">${i.name} — ${i.price} บาท</option>`
+            ).join('');
+            document.getElementById('orderQty').value = 1;
+            if (currentUser) {
+                document.getElementById('buyerNameInput').value = `${currentUser.name} (${currentUser.phone || ''})`;
+            }
+            calculateTotal();
+            document.getElementById('orderModal').classList.remove('hidden');
+        }
+
+        function closeOrderModal() {
+            document.getElementById('orderModal').classList.add('hidden');
+        }
+
+        function calculateTotal() {
+            if (!selectedGardenForOrder) return;
+            const idx = parseInt(document.getElementById('orderItemSelect').value, 10);
+            const qty = Math.max(1, parseInt(document.getElementById('orderQty').value, 10) || 1);
+            const item = selectedGardenForOrder.items[idx];
+            if (item) {
+                document.getElementById('totalPrice').textContent = `${(item.price * qty).toLocaleString()} ฿`;
+            }
+        }
+
+        function handleOrderSubmit(e) {
+            e.preventDefault();
+            if (!selectedGardenForOrder) return;
+
+            const idx = parseInt(document.getElementById('orderItemSelect').value, 10);
+            const qty = Math.max(1, parseInt(document.getElementById('orderQty').value, 10) || 1);
+            const item = selectedGardenForOrder.items[idx];
+            const rawPickup = document.getElementById('pickupTime').value;
+            const formattedPickup = rawPickup ? rawPickup.replace('T', ' เวลา ') + ' น.' : 'วันนี้';
+
+            const newOrder = {
+                id: 'ORD-' + Math.floor(1000 + Math.random() * 9000),
+                gardenId: selectedGardenForOrder.id,
+                gardenOwnerEmail: selectedGardenForOrder.ownerEmail || "seller@demo.com",
+                gardenName: selectedGardenForOrder.name,
+                gardenPhone: selectedGardenForOrder.phone,
+                gardenLine: selectedGardenForOrder.lineId || '',
+                itemName: item.name,
+                qty,
+                totalPrice: item.price * qty,
+                pickupTime: formattedPickup,
+                buyerName: document.getElementById('buyerNameInput').value.trim(),
+                buyerEmail: currentUser ? currentUser.email : "buyer@demo.com",
+                status: 'รอร้านยืนยัน'
+            };
+
+            orders.unshift(newOrder);
+            localStorage.setItem('lem_orders_v3', JSON.stringify(orders));
+            closeOrderModal();
+            updateOrderBadge();
+            showToast(`สั่งซื้อสำเร็จ! รหัสออเดอร์ ${newOrder.id}`);
+        }
+
+        function updateOrderBadge() {
+            const badge = document.getElementById('orderBadge');
+            if (orders.length > 0) {
+                badge.textContent = orders.length;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function openMyOrdersModal() {
+            const list = document.getElementById('myOrdersList');
+            if (orders.length === 0) {
+                list.innerHTML = `
+                    <div class="text-center py-10 text-slate-400 space-y-2">
+                        <i class="fa-solid fa-basket-shopping text-3xl text-slate-300"></i>
+                        <p class="text-xs">ยังไม่มีรายการคำสั่งซื้อในระบบ</p>
+                    </div>`;
+            } else {
+                list.innerHTML = orders.map(o => {
+                    let badgeStyle = "bg-amber-100 text-amber-800 border-amber-200";
+                    if (o.status === 'กำลังเตรียมผัก') badgeStyle = "bg-blue-100 text-blue-800 border-blue-200";
+                    if (o.status === 'พร้อมรับสินค้า') badgeStyle = "bg-emerald-100 text-emerald-800 border-emerald-200";
+                    if (o.status === 'เสร็จสิ้น') badgeStyle = "bg-slate-200 text-slate-700 border-slate-300";
+
+                    const lineBtn = o.gardenLine
+                        ? `<a href="https://line.me/ti/p/~${encodeURIComponent(o.gardenLine)}" target="_blank" class="text-[#06C755] font-semibold hover:underline"><i class="fa-brands fa-line mr-0.5"></i>ทัก LINE ร้าน</a>`
+                        : '';
+
+                    return `
+                        <div class="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm text-xs space-y-1.5">
+                            <div class="flex justify-between items-center">
+                                <span class="font-bold text-slate-800">${o.id}</span>
+                                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${badgeStyle}">${o.status}</span>
+                            </div>
+                            <div class="font-semibold text-emerald-700">${o.gardenName}</div>
+                            <div class="text-slate-700">สินค้า: <strong>${o.itemName}</strong> × ${o.qty} = <strong class="text-slate-900">${o.totalPrice} ฿</strong></div>
+                            <div class="text-[11px] text-slate-500 pt-1.5 border-t border-slate-100 flex justify-between items-center">
+                                <span><i class="fa-regular fa-clock mr-1"></i>นัดรับ: ${o.pickupTime}</span>
+                                <div class="flex gap-2">
+                                    ${lineBtn}
+                                    <button onclick="closeMyOrdersModal(); openChatModal(${o.gardenId})" class="text-sky-600 font-semibold hover:underline">แชตในระบบ</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+            document.getElementById('myOrdersModal').classList.remove('hidden');
+        }
+
+        function closeMyOrdersModal() {
+            document.getElementById('myOrdersModal').classList.add('hidden');
+        }
+
+        // ================= SELLER DASHBOARD RENDERER =================
+        function renderSellerDashboard() {
+            // Show gardens owned by current seller (or all gardens if demo seller so they can manage immediately)
+            const myGardens = currentUser && currentUser.email !== 'seller@demo.com'
+                ? gardens.filter(g => g.ownerEmail === currentUser.email)
+                : gardens;
+
+            document.getElementById('sellerGardenCount').textContent = `${myGardens.length} แห่ง`;
+
+            if (myGardens.length === 0) {
+                document.getElementById('sellerGardenList').innerHTML = `
+                    <div class="text-center py-5 text-xs text-slate-400">
+                        คุณยังไม่มีจุดปลูกผักบนแผนที่<br>กดปุ่ม <strong>"+ เพิ่มสวน"</strong> ด้านบนเพื่อเริ่มลงขาย
+                    </div>`;
+            } else {
+                document.getElementById('sellerGardenList').innerHTML = myGardens.map(g => `
+                    <div class="bg-white p-2.5 rounded-xl border border-slate-200 text-xs flex space-x-2.5 items-center shadow-sm">
+                        <img src="${g.image}" onerror="this.src='https://placehold.co/100x100/16a34a/ffffff?text=Farm'" class="w-12 h-12 rounded-lg object-cover flex-shrink-0 cursor-pointer" onclick="focusGardenOnMap(${g.lat}, ${g.lng})">
+                        <div class="flex-1 min-w-0 cursor-pointer" onclick="focusGardenOnMap(${g.lat}, ${g.lng})">
+                            <div class="font-bold text-slate-800 truncate">${g.name}</div>
+                            <div class="text-[11px] text-slate-500 truncate">${g.items.map(i => `${i.name} ${i.price}฿`).join(', ')}</div>
+                        </div>
+                        <button onclick="openChatModal(${g.id})" class="text-sky-600 hover:bg-sky-50 p-2 rounded-lg transition" title="ดูแชตลูกค้า">
+                            <i class="fa-solid fa-comments"></i>
+                        </button>
+                        <button onclick="deleteGarden(${g.id})" class="text-rose-500 hover:bg-rose-50 p-2 rounded-lg transition" title="ลบสวน">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `).join('');
+            }
+
+            // Incoming Orders
+            const incomingBox = document.getElementById('sellerIncomingOrders');
+            document.getElementById('incomingOrderCount').textContent = `${orders.length} ออเดอร์`;
+
+            if (orders.length === 0) {
+                incomingBox.innerHTML = `<div class="text-center text-xs text-slate-400 py-6 bg-slate-50 rounded-xl border border-dashed">ยังไม่มีคำสั่งซื้อเข้ามา</div>`;
+            } else {
+                incomingBox.innerHTML = orders.map((o, idx) => `
+                    <div class="bg-emerald-50/70 p-3 rounded-xl border border-emerald-200 text-xs space-y-1.5">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-800">${o.buyerName}</span>
+                            <span class="text-[10px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-md border border-emerald-200">${o.status}</span>
+                        </div>
+                        <div class="text-slate-700 font-semibold">${o.itemName} × ${o.qty} (${o.totalPrice} ฿)</div>
+                        <div class="text-[10px] text-slate-500">ร้าน: ${o.gardenName} • นัดรับ: ${o.pickupTime}</div>
+                        <div class="grid grid-cols-3 gap-1 pt-1">
+                            <button onclick="updateOrderStatus(${idx}, 'กำลังเตรียมผัก')" class="bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded-lg text-[10px] font-medium transition">
+                                กำลังเตรียมผัก
+                            </button>
+                            <button onclick="updateOrderStatus(${idx}, 'พร้อมรับสินค้า')" class="bg-emerald-600 hover:bg-emerald-700 text-white py-1.5 rounded-lg text-[10px] font-medium transition">
+                                พร้อมรับสินค้า
+                            </button>
+                            <button onclick="updateOrderStatus(${idx}, 'เสร็จสิ้น')" class="bg-slate-700 hover:bg-slate-800 text-white py-1.5 rounded-lg text-[10px] font-medium transition">
+                                เสร็จสิ้น
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function updateOrderStatus(idx, status) {
+            if (!orders[idx]) return;
+            orders[idx].status = status;
+            localStorage.setItem('lem_orders_v3', JSON.stringify(orders));
+            renderSellerDashboard();
+            showToast(`อัปเดตสถานะออเดอร์ ${orders[idx].id} เป็น "${status}"`);
+        }
+
+        function deleteGarden(id) {
+            customConfirm(
+                "ยืนยันการลบจุดปลูกผัก",
+                "คุณต้องการลบสวนผักนี้ออกจากแผนที่ชุมชนใช่หรือไม่?",
+                () => {
+                    gardens = gardens.filter(g => g.id !== id);
+                    localStorage.setItem('lem_gardens_v3', JSON.stringify(gardens));
+                    refreshApp();
+                    renderSellerDashboard();
+                    showToast("ลบจุดปลูกผักเรียบร้อยแล้ว");
+                }
+            );
+        }
+    </script>
+</body>
+</html>
